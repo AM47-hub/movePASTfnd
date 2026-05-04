@@ -179,9 +179,10 @@ def process():
                                 if pref == 'next' and anchor_dt.weekday() < target_weekday:
                                     view_date += timedelta(days=7)
 
-                    if "1Found" in source: 
-                        # Append a new object for PAST match found
-                        results.append({"fnd_anchor": anchor})
+                    if view_date and view_date < status_dt:
+                        if "1Found" in source: 
+                            # Append a new object for PAST match found
+                            results.append({"fnd_anchor": anchor})
             except:
                 continue
         
