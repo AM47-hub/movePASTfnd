@@ -3,7 +3,6 @@ import re
 import json
 from datetime import datetime, timedelta
 import os
-
 # --- GLOBAL CONSTANT BLOCK ---
 # Digitize Natural Language
 CARDINALS = {
@@ -19,29 +18,23 @@ CARDINALS = {
     '\u2013': '-', '\u2014': '-', '\u2212': '-',
     'dash': '-', '–': '-', '—': '-', 'hyphen': '-'
 }
-
 ORDINALS = {
     "first": 1,"second": 2,"third": 3,"fourth": 4,"fifth": 5,
     "sixth": 6,"seventh": 7,"eighth": 8,"ninth": 9,"tenth": 10,
-    "eleventh": 11,"twelveth": 12,"thirteenth": 13,"fourteenth": 14,"fifteenth": 15,
+    "eleventh": 11,"twelfth": 12,"thirteenth": 13,"fourteenth": 14,"fifteenth": 15,
     "sixteenth": 16,"seventeenth": 17,"eighteenth": 18,"ninteenth": 19,
     "twentieth": 20, "thirtieth": 30, "fortieth": 40, "fiftieth": 50
 }
-
 ENCLITICS = {"st","nd","rd","th"}
-
 ENCLITIC_MAP = {
-     1: "st", 2: "nd", 3: "rd", 4: "th", 5: "th",
-     6: "th", 7: "th", 8: "th", 9: "th", 10: "th",
+     1: "st", 2: "nd", 3: "rd"
 }
-
 # Address abbreviations
 SUFFIX = {
     'Road': 'Rd.', 'Street': 'St.', 'Crescent': 'Cres.', 
     'Place': 'Pl.', 'Avenue': 'Ave.', 'Lane': 'Ln.', 
     'Highway': 'Hwy.', 'Way': 'Wy.','Row': 'Rw.', 'Terrace': 'Tce.', 'Drive': 'Dr.'
 }
-
 DAY_IDX = {
     'mon': 0, 'monday': 0,
     'tue': 1, 'tuesday': 1,
@@ -51,24 +44,19 @@ DAY_IDX = {
     'sat': 5, 'saturday': 5,
     'sun': 6, 'sunday': 6
 }
-
 MTH_IDX = {
     "jan": 1,"feb": 2,"mar": 3,"apr": 4,"may": 5,"jun": 6,
     "jul": 7,"aug": 8,"sep": 9,"oct": 10,"nov": 11,"dec": 12
 }
-
 KEYWORDS = {
     "flat", "number", "beside", "suburb", "type", "rent", "rooms", 
     "available", "viewing", "from", "until", "agency", 
     "person", "mobile", "comments"
 }
-
 app = Flask(__name__)
-
 @app.route('/ping', methods=['GET', 'HEAD'])
 def wakeup():
     return make_response("Ready", 200)
-
 def initial_parse(dictated):
     delimit = re.compile(r'\b(' + '|'.join(KEYWORDS) + r')\b', re.I)
     chunks = list(delimit.finditer(dictated))
@@ -81,7 +69,6 @@ def initial_parse(dictated):
             end = len(dictated)
         raw_vals[chunks[i].group(1).lower()] = dictated[start:end].strip()
     return raw_vals
-
 @app.route('/process', methods=['POST'])
 def process():
     try:
@@ -90,41 +77,35 @@ def process():
         raw = str(payload).replace('\xa0', ' ').strip()
         if not raw: 
             return make_response(json.dumps([]), 200)
-
         notes = [s.strip() for s in raw.split('|') if 'Content:' in s]
-
         # Initialize results as an empty list
         results = []
-
         for text in notes:
             try:
                 key_values = text.split('Content:', 1)
                 if len(key_values) < 2:
                     continue
-
                 meta = key_values[0]
                 body = key_values[1]
-
                 raw_list = re.search(r'Source:\s*(\S+)', meta, re.I)
                 raw_status = re.search(r'Status:\s*(\d{4}-\d{2}-\d{2})', meta, re.I)
                 raw_anchor = re.search(r'Anchor:\s*([\d\-T:+]+)', meta, re.I)
-
                 if raw_list and raw_status and raw_anchor:
                     source = raw_list.group(1)
                     status = raw_status.group(1)
                     anchor = raw_anchor.group(1)
                     anch_clean = anchor.split('T')[0]
+                    
                     status_dt = datetime.strptime(status, '%Y-%m-%d').date()
                     anchor_dt = datetime.strptime(anch_clean, '%Y-%m-%d').date()
+                    
                     tokens = initial_parse(body)
-
                     # Global Cardinal Repairs
                     for key in tokens:
                         val = tokens[key]
                         for word, digit in CARDINALS.items():
                             val = re.sub(rf'\b{word}\b', digit, val, flags=re.I)
                         tokens[key] = val
-
                     # Targeted Ordinal Repair (Date Fields only)
                     for key in ['available', 'viewing']:
                         val = tokens.get(key, '')
@@ -134,7 +115,6 @@ def process():
                         val = val.replace('-', ' ')
                         val = re.sub(rf'\b(the|of)\b', '', val, flags=re.I)
                         val = re.sub(r'\s+', ' ', val).strip()
-
                         # Identify hybrid string (e.g., "20 third")
                         isHybrid = rf"\b(20|30)\s+({'|'.join(ORDINALS.keys())})\b"
                         def convert_Hybrid(match):
@@ -149,9 +129,7 @@ def process():
                             else:
                                 suffix = ENCLITIC_MAP.get(total % 10, "th")
                             return f"{total}{suffix}"
-
                         val = re.sub(isHybrid, convert_Hybrid, val, flags=re.I)
-
                         # If not, simple Ordinal conversion (e.g., "sixth")
                         for word, digit in ORDINALS.items():
                             # Convert to int for the suffix check, or use a map
@@ -160,23 +138,23 @@ def process():
                                 suffix = "th"
                             else:
                                 suffix =ENCLITIC_MAP.get(d_int % 10, "th")
-                            
-                        val = re.sub(rf'\b{word}\b', f"{d_int}{suffix}", val, flags=re.I)
+                            val = re.sub(rf'\b{word}\b', f"{d_int}{suffix}", val, flags=re.I)
+                        
                         tokens[key] = val
-
                     view_string = tokens.get('viewing', '').lower()
                     view_date = None
-
                     # --- DATE LOGIC ---
                     # Direct Numeric (Robust Version with Rollover)
                     date_actual = re.search(r'(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?', view_string)
                     if date_actual:
                         v_day = int(date_actual.group(1))
                         v_mth = int(date_actual.group(2))
+                    
                         if date_actual.group(3):
                             # Handle century only rollover
                             v_yr = int(date_actual.group(3))
                             if v_yr < 100: v_yr += 2000
+                            
                             try:
                                 view_date = datetime(v_yr, v_mth, v_day).date()
                             except ValueError:
@@ -192,7 +170,6 @@ def process():
                                 view_date = temp_date
                             except ValueError:
                                 pass
-
                     # Absolute Names
                     if not view_date:
                         encl_pat = "|".join(ENCLITICS)
@@ -223,7 +200,6 @@ def process():
                                 view_date = temp_date
                             except ValueError:
                                 pass
-
                     # Relative Logic
                     if not view_date:
                         if "tomorrow" in view_string:
@@ -241,7 +217,6 @@ def process():
                                 view_date = anchor_dt + timedelta(days=days_ahead)
                                 if pref == 'next' and anchor_dt.weekday() < target_weekday:
                                     view_date += timedelta(days=7)
-
                     if view_date and view_date < status_dt:
                         if "1Found" in source: 
                             # Append a new object for PAST match found
@@ -250,11 +225,8 @@ def process():
                                 })
             except:
                 continue
-
         return make_response(json.dumps(results), 200, {"Content-Type": "application/json"})
-
     except Exception as e:
         return make_response(json.dumps([{"fatal_crash": str(e)}]), 200)
-
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
